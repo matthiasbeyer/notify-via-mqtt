@@ -70,31 +70,24 @@ async fn main() {
         }
     }
 
-    let topics = config
-        .mappings
-        .iter()
-        .map(|mapping| mapping.topic.to_string())
-        .collect::<Vec<String>>();
-    let topics_qos = vec![paho_mqtt::QOS_1; topics.len()];
-
-    let sub_opts = vec![paho_mqtt::SubscribeOptions::with_retain_as_published(); topics.len()];
 
     let mut client = client; // rebind mutably
     let mut stream = client.get_stream(25);
 
-    match client
-        .subscribe_many_with_options(&topics, &topics_qos, &sub_opts, None)
-        .instrument(tracing::debug_span!("mqtt.subscribing"))
-        .await
+    if let Err(()) = config
+        .mappings
+        .iter()
+        .try_for_each(|mapping| {
+            match client.subscribe(&mapping.topic, paho_mqtt::QOS_1).wait() {
+                Ok(_server_response) => Ok(()),
+                Err(error) => {
+                    tracing::error!(?error, topic = ?mapping.topic, "Failed to subscribe to topic");
+                    Err(())
+                }
+            }
+        })
     {
-        Err(e) => {
-            tracing::error!("Failed to subscribe: {e:?}");
-            std::process::exit(1)
-        }
-
-        Ok(_) => {
-            tracing::info!(?topics, "MQTT subscribed");
-        }
+        std::process::exit(1)
     }
 
     while let Some(msg_opt) = stream.next().await {
