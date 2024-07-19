@@ -3,6 +3,9 @@ mqtt_broker_port = 1883
 session_expiry_interval = 60
 message_timeout_millis = 6000
 
+mqtt_username = "Hans"
+mqtt_password = "Wurst"
+
 [[mappings]]
 topic = "test"
 action = { OnValueEqSay = { value = "test", say = "Received test" } }

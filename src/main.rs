@@ -43,10 +43,20 @@ async fn main() {
         }
     };
 
-    let conn_opts = paho_mqtt::ConnectOptionsBuilder::with_mqtt_version(paho_mqtt::MQTT_VERSION_5)
-        .properties(paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => config.session_expiry_interval as u64])
-        .clean_session(true)
-        .finalize();
+    let mut conn_opts =
+        paho_mqtt::ConnectOptionsBuilder::with_mqtt_version(paho_mqtt::MQTT_VERSION_5);
+    conn_opts
+        .properties(paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => config.session_expiry_interval as u64]);
+    conn_opts.clean_session(true);
+
+    if let (Some(username), Some(password)) =
+        (config.mqtt_username.as_ref(), config.mqtt_password.as_ref())
+    {
+        conn_opts.user_name(username);
+        conn_opts.password(password);
+    }
+
+    let conn_opts = conn_opts.finalize();
 
     // Connect and wait for it to complete or fail
     match client.connect(conn_opts).await {

@@ -4,6 +4,9 @@ pub struct Config {
     pub mqtt_broker_port: u16,
     pub session_expiry_interval: u16,
 
+    pub mqtt_username: Option<String>,
+    pub mqtt_password: Option<String>,
+
     pub message_timeout_millis: u16,
 
     pub mappings: Vec<Mapping>,
