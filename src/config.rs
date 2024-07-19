@@ -48,14 +48,17 @@ mod tests {
 
     #[test]
     fn test_deser_mapping_on_value_eq_say() {
-        let config = r#"
-            topic = "foo"
-            [action.OnValueEqSay]
-            value = "bar"
-            say = "baz"
-        "#;
+        let config = serde_json::json!({
+            "topic": "foo",
+            "action": {
+                "OnValueEqSay": {
+                    "value": "bar",
+                    "say": "baz"
+                }
+            }
+        });
 
-        let mapping: Mapping = toml::from_str(config).unwrap();
+        let mapping: Mapping = serde_json::from_value(config).unwrap();
         assert_eq!(mapping.topic, "foo");
 
         let Action::OnValueEqSay { value, say } = mapping.action else {
@@ -68,14 +71,17 @@ mod tests {
 
     #[test]
     fn test_deser_mapping_on_value_ne_say() {
-        let config = r#"
-            topic = "foo"
-            [action.OnValueNeSay]
-            value = "bar"
-            say = "baz"
-        "#;
+        let config = serde_json::json!({
+            "topic": "foo",
+            "action": {
+                "OnValueNeSay": {
+                    "value": "bar",
+                    "say": "baz"
+                }
+            }
+        });
 
-        let mapping: Mapping = toml::from_str(config).unwrap();
+        let mapping: Mapping = serde_json::from_value(config).unwrap();
         assert_eq!(mapping.topic, "foo");
 
         let Action::OnValueNeSay { value, say } = mapping.action else {
