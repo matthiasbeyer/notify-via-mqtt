@@ -55,7 +55,7 @@ mod tests {
             say = "baz"
         "#;
 
-        let mapping: Mapping = toml::from_str(&config).unwrap();
+        let mapping: Mapping = toml::from_str(config).unwrap();
         assert_eq!(mapping.topic, "foo");
 
         let Action::OnValueEqSay { value, say } = mapping.action else {
@@ -75,7 +75,7 @@ mod tests {
             say = "baz"
         "#;
 
-        let mapping: Mapping = toml::from_str(&config).unwrap();
+        let mapping: Mapping = toml::from_str(config).unwrap();
         assert_eq!(mapping.topic, "foo");
 
         let Action::OnValueNeSay { value, say } = mapping.action else {
