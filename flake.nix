@@ -93,7 +93,7 @@
             cargoClippyExtraArgs = "--benches --examples --tests --all-features -- --deny warnings";
           };
 
-          cloudroots-fmt = nightlyCraneLib.cargoFmt {
+          notify-via-mqtt-fmt = nightlyCraneLib.cargoFmt {
             inherit src pname;
           };
 
