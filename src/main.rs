@@ -70,23 +70,18 @@ async fn main() {
         }
     }
 
-
     let mut client = client; // rebind mutably
     let mut stream = client.get_stream(25);
 
-    if let Err(()) = config
-        .mappings
-        .iter()
-        .try_for_each(|mapping| {
-            match client.subscribe(&mapping.topic, paho_mqtt::QOS_1).wait() {
-                Ok(_server_response) => Ok(()),
-                Err(error) => {
-                    tracing::error!(?error, topic = ?mapping.topic, "Failed to subscribe to topic");
-                    Err(())
-                }
+    if let Err(()) = config.mappings.iter().try_for_each(|mapping| {
+        match client.subscribe(&mapping.topic, paho_mqtt::QOS_1).wait() {
+            Ok(_server_response) => Ok(()),
+            Err(error) => {
+                tracing::error!(?error, topic = ?mapping.topic, "Failed to subscribe to topic");
+                Err(())
             }
-        })
-    {
+        }
+    }) {
         std::process::exit(1)
     }
 
