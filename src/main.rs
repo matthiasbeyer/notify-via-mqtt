@@ -1,6 +1,6 @@
 use clap::Parser;
 use futures::stream::StreamExt;
-use tracing::{Instrument, Level};
+use tracing::Level;
 
 mod cli;
 mod config;
