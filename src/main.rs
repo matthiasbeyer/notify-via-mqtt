@@ -1,5 +1,6 @@
 use clap::Parser;
-use futures::stream::StreamExt;
+use rumqttc::AsyncClient;
+use rumqttc::MqttOptions;
 use tracing::Level;
 
 mod cli;
@@ -28,103 +29,78 @@ async fn main() {
     let config: crate::config::Config = toml::from_str(&config_str).unwrap();
     tracing::trace!(?config, "Configuration parsed");
 
-    let connect_str = format!(
-        "tcp://{}:{}",
-        config.mqtt_broker_uri, config.mqtt_broker_port
+    let mut mqttoptions = MqttOptions::new(
+        "notify-via-mqtt",
+        config.mqtt_broker_uri,
+        config.mqtt_broker_port,
     );
-    let client = match paho_mqtt::AsyncClient::new(connect_str) {
-        Ok(client) => {
-            tracing::debug!("Created MQTT client");
-            client
-        }
-        Err(error) => {
-            tracing::error!(?error, "Error creating the MQTT client: {error:?}");
-            std::process::exit(1)
-        }
-    };
-
-    let mut conn_opts =
-        paho_mqtt::ConnectOptionsBuilder::with_mqtt_version(paho_mqtt::MQTT_VERSION_5);
-    conn_opts
-        .properties(paho_mqtt::properties![paho_mqtt::PropertyCode::SessionExpiryInterval => config.session_expiry_interval as u64]);
-    conn_opts.clean_session(true);
-
+    mqttoptions.set_keep_alive(std::time::Duration::from_secs(
+        config.session_expiry_interval.into(),
+    ));
     if let (Some(username), Some(password)) =
         (config.mqtt_username.as_ref(), config.mqtt_password.as_ref())
     {
-        conn_opts.user_name(username);
-        conn_opts.password(password);
+        mqttoptions.set_credentials(username, password);
     }
 
-    let conn_opts = conn_opts.finalize();
+    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
 
-    // Connect and wait for it to complete or fail
-    match client.connect(conn_opts).await {
-        Err(e) => {
-            tracing::error!("Unable to connect: {e:?}");
-            std::process::exit(1)
-        }
-
-        Ok(_) => {
-            tracing::info!("MQTT connected");
+    for mapping in config.mappings.iter() {
+        if let Err(error) = client
+            .subscribe(&mapping.topic, rumqttc::QoS::AtMostOnce)
+            .await
+        {
+            tracing::error!(?error, topic = ?mapping.topic, "Failed to subscribe to topic");
+            std::process::exit(1);
         }
     }
 
-    let mut client = client; // rebind mutably
-    let mut stream = client.get_stream(25);
-
-    if let Err(()) = config.mappings.iter().try_for_each(|mapping| {
-        match client.subscribe(&mapping.topic, paho_mqtt::QOS_1).wait() {
-            Ok(_server_response) => Ok(()),
+    loop {
+        let notification = match eventloop.poll().await {
+            Ok(notification) => notification,
             Err(error) => {
-                tracing::error!(?error, topic = ?mapping.topic, "Failed to subscribe to topic");
-                Err(())
+                tracing::error!(?error, "Failed to poll");
+                std::process::exit(1);
             }
-        }
-    }) {
-        std::process::exit(1)
-    }
+        };
 
-    while let Some(msg_opt) = stream.next().await {
-        if let Some(msg) = msg_opt {
-            let message_text = match String::from_utf8(msg.payload().to_vec()) {
-                Ok(text) => {
-                    tracing::info!("Received message: '{text}'");
-                    text
-                }
-                Err(error) => {
-                    tracing::error!(?error, payload = ?msg.payload(), "Invalid UTF8 received");
-                    continue;
-                }
-            };
+        let rumqttc::Event::Incoming(rumqttc::Incoming::Publish(rumqttc::mqttbytes::v4::Publish {
+            payload,
+            topic,
+            ..
+        })) = notification
+        else {
+            continue;
+        };
 
-            let message_text = config
-                .mappings
-                .iter()
-                .filter(|mapping| mapping.topic == msg.topic())
-                .find(|mapping| mapping.action.is_applicable(&message_text))
-                .map(|mapping| mapping.action.say().to_string())
-                .unwrap_or_else(|| format!("Received message: {message_text}"));
-
-            tokio::task::spawn_blocking(move || {
-                notify_rust::Notification::new()
-                    .summary("MQTT Notification")
-                    .body(&message_text)
-                    .timeout(notify_rust::Timeout::Milliseconds(
-                        config.message_timeout_millis.into(),
-                    ))
-                    .show()
-                    .unwrap();
-            });
-        } else {
-            // A "None" means we were disconnected. Try to reconnect...
-            tracing::info!("Lost connection. Attempting reconnect.");
-            while let Err(error) = client.reconnect().await {
-                tracing::error!(?error, "Error reconnecting");
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        let message_text = match String::from_utf8(payload.to_vec()) {
+            Ok(text) => {
+                tracing::info!("Received message: '{text}'");
+                text
             }
-        }
-    }
+            Err(error) => {
+                tracing::error!(?error, payload = ?payload, "Invalid UTF8 received");
+                continue;
+            }
+        };
 
-    tracing::info!("Finished");
+        let message_text = config
+            .mappings
+            .iter()
+            .filter(|mapping| mapping.topic == topic)
+            .find(|mapping| mapping.action.is_applicable(&message_text))
+            .map(|mapping| mapping.action.say().to_string())
+            .unwrap_or_else(|| format!("Received message: {message_text}"));
+
+        tokio::task::spawn_blocking(move || {
+            notify_rust::Notification::new()
+                .summary("MQTT Notification")
+                .body(&message_text)
+                .timeout(notify_rust::Timeout::Milliseconds(
+                    config.message_timeout_millis.into(),
+                ))
+                .show()
+                .unwrap();
+        });
+    }
 }
