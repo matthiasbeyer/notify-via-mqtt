@@ -1,6 +1,6 @@
 use clap::Parser;
 use futures::stream::StreamExt;
-use tracing::Level;
+use tracing::{Instrument, Level};
 
 mod cli;
 mod config;
@@ -84,6 +84,7 @@ async fn main() {
 
     match client
         .subscribe_many_with_options(&topics, &topics_qos, &sub_opts, None)
+        .instrument(tracing::debug_span!("mqtt.subscribing"))
         .await
     {
         Err(e) => {
