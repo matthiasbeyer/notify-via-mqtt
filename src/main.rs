@@ -26,7 +26,7 @@ async fn main() {
     let config_str = tokio::fs::read_to_string(&cli.config).await.unwrap();
     tracing::trace!(?config_str, "Configuration read from disk");
 
-    let config: crate::config::Config = toml::from_str(&config_str).unwrap();
+    let config: crate::config::Config = serde_json::from_str(&config_str).unwrap();
     tracing::trace!(?config, "Configuration parsed");
 
     let mut mqttoptions = MqttOptions::new(
