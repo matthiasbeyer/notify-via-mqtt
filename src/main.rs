@@ -1,6 +1,6 @@
 use clap::Parser;
-use tracing::Level;
 use futures::stream::StreamExt;
+use tracing::Level;
 
 mod cli;
 mod config;
@@ -95,19 +95,29 @@ async fn main() {
                 }
                 Err(error) => {
                     tracing::error!(?error, payload = ?msg.payload(), "Invalid UTF8 received");
-                    continue
+                    continue;
                 }
             };
+
+            let message_text = config
+                .mappings
+                .iter()
+                .filter(|mapping| mapping.topic == msg.topic())
+                .find(|mapping| mapping.action.is_applicable(&message_text))
+                .map(|mapping| mapping.action.say().to_string())
+                .unwrap_or_else(|| format!("Received message: {message_text}"));
 
             tokio::task::spawn_blocking(move || {
                 notify_rust::Notification::new()
                     .summary("MQTT Notification")
                     .body(&message_text)
-                    .timeout(notify_rust::Timeout::Milliseconds(config.message_timeout_millis.into()))
-                    .show().unwrap();
+                    .timeout(notify_rust::Timeout::Milliseconds(
+                        config.message_timeout_millis.into(),
+                    ))
+                    .show()
+                    .unwrap();
             });
-        }
-        else {
+        } else {
             // A "None" means we were disconnected. Try to reconnect...
             tracing::info!("Lost connection. Attempting reconnect.");
             while let Err(error) = client.reconnect().await {
