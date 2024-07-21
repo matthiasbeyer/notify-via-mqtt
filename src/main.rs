@@ -24,7 +24,7 @@ async fn main() -> miette::Result<()> {
         .init();
     tracing::debug!(?cli);
 
-    let config_str = tokio::fs::read_to_string(&cli.config).await
+    let config_str = std::fs::read_to_string(&cli.config)
         .inspect_err(|error| tracing::error!(?error, "Failed to read configuration"))
         .into_diagnostic()?;
     tracing::trace!(?config_str, "Configuration read from disk");
