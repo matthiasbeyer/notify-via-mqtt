@@ -7,6 +7,8 @@ pub struct Config {
     pub mqtt_username: Option<String>,
     pub mqtt_password: Option<String>,
 
+    pub notify_on_startup: Option<String>,
+
     pub message_timeout_millis: u16,
 
     pub mappings: Vec<Mapping>,

@@ -59,6 +59,22 @@ async fn main() -> miette::Result<()> {
             .into_diagnostic()?;
     }
 
+    if let Some(notify_on_startup) = config.notify_on_startup.as_ref().cloned() {
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = notify_rust::Notification::new()
+                .summary("Startup")
+                .body(&notify_on_startup)
+                .timeout(notify_rust::Timeout::Milliseconds(
+                    config.message_timeout_millis.into(),
+                ))
+                .show()
+                .into_diagnostic()
+            {
+                tracing::error!(?error, "Failed to show notification");
+            }
+        });
+    }
+
     loop {
         let notification = eventloop
             .poll()
