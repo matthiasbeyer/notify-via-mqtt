@@ -7,6 +7,105 @@ use tracing::Level;
 mod cli;
 mod config;
 
+async fn run(
+    config: &crate::config::Config,
+    mqttoptions: MqttOptions,
+    restart_cycle: usize,
+) -> miette::Result<()> {
+    let (client, mut eventloop) = AsyncClient::new(mqttoptions.clone(), 10);
+
+    for mapping in config.mappings.iter() {
+        let () = client
+            .subscribe(&mapping.topic, rumqttc::QoS::AtMostOnce)
+            .await
+            .inspect_err(|error| tracing::error!(?error, "Failed to subscribe"))
+            .into_diagnostic()?;
+    }
+
+    if let Some(notify_on_startup) = config.notify_on_startup.as_ref().cloned() {
+        let message_timeout = config.message_timeout_millis.into();
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = notify_rust::Notification::new()
+                .summary("Startup")
+                .body(&notify_on_startup)
+                .timeout(notify_rust::Timeout::Milliseconds(message_timeout))
+                .show()
+                .into_diagnostic()
+            {
+                tracing::error!(?error, "Failed to show notification");
+            }
+        });
+    }
+
+    loop {
+        let notification = match eventloop
+            .poll()
+            .await
+            .inspect_err(|error| tracing::error!(?error, "Failed to poll from eventloop"))
+        {
+            Ok(notification) => notification,
+            Err(rumqttc::ConnectionError::NetworkTimeout) => {
+                let duration = 60;
+                tracing::info!(
+                    "Network timeout, sleeping now for {}s and then restarting MQTT client",
+                    duration
+                );
+
+                // do not recurse infinitely
+                if restart_cycle > 10 {
+                    return Err(rumqttc::ConnectionError::NetworkTimeout).into_diagnostic();
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(duration)).await;
+
+                // recurse
+                return Box::pin(run(config, mqttoptions, restart_cycle + 1)).await;
+            }
+            other_err => return other_err.map(|_| ()).into_diagnostic(),
+        };
+
+        let rumqttc::Event::Incoming(rumqttc::Incoming::Publish(rumqttc::mqttbytes::v4::Publish {
+            payload,
+            topic,
+            ..
+        })) = notification
+        else {
+            continue;
+        };
+
+        let message_text = match String::from_utf8(payload.to_vec()) {
+            Ok(text) => {
+                tracing::info!("Received message: '{text}'");
+                text
+            }
+            Err(error) => {
+                tracing::error!(?error, payload = ?payload, "Invalid UTF8 received");
+                continue;
+            }
+        };
+
+        let message_text = config
+            .mappings
+            .iter()
+            .filter(|mapping| mapping.topic == topic)
+            .find(|mapping| mapping.action.is_applicable(&message_text))
+            .map(|mapping| mapping.action.say().to_string())
+            .unwrap_or_else(|| format!("Received message: {message_text}"));
+
+        let message_timeout = config.message_timeout_millis.into();
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = notify_rust::Notification::new()
+                .summary("MQTT Notification")
+                .body(&message_text)
+                .timeout(notify_rust::Timeout::Milliseconds(message_timeout))
+                .show()
+                .into_diagnostic()
+            {
+                tracing::error!(?error, "Failed to show notification");
+            }
+        });
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> miette::Result<()> {
     let cli = crate::cli::Cli::parse();
@@ -37,7 +136,7 @@ async fn main() -> miette::Result<()> {
 
     let mut mqttoptions = MqttOptions::new(
         "notify-via-mqtt",
-        config.mqtt_broker_uri,
+        config.mqtt_broker_uri.clone(),
         config.mqtt_broker_port,
     );
     mqttoptions.set_keep_alive(std::time::Duration::from_secs(
@@ -49,79 +148,5 @@ async fn main() -> miette::Result<()> {
         mqttoptions.set_credentials(username, password);
     }
 
-    let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
-
-    for mapping in config.mappings.iter() {
-        let () = client
-            .subscribe(&mapping.topic, rumqttc::QoS::AtMostOnce)
-            .await
-            .inspect_err(|error| tracing::error!(?error, "Failed to subscribe"))
-            .into_diagnostic()?;
-    }
-
-    if let Some(notify_on_startup) = config.notify_on_startup.as_ref().cloned() {
-        tokio::task::spawn_blocking(move || {
-            if let Err(error) = notify_rust::Notification::new()
-                .summary("Startup")
-                .body(&notify_on_startup)
-                .timeout(notify_rust::Timeout::Milliseconds(
-                    config.message_timeout_millis.into(),
-                ))
-                .show()
-                .into_diagnostic()
-            {
-                tracing::error!(?error, "Failed to show notification");
-            }
-        });
-    }
-
-    loop {
-        let notification = eventloop
-            .poll()
-            .await
-            .inspect_err(|error| tracing::error!(?error, "Failed to poll from eventloop"))
-            .into_diagnostic()?;
-
-        let rumqttc::Event::Incoming(rumqttc::Incoming::Publish(rumqttc::mqttbytes::v4::Publish {
-            payload,
-            topic,
-            ..
-        })) = notification
-        else {
-            continue;
-        };
-
-        let message_text = match String::from_utf8(payload.to_vec()) {
-            Ok(text) => {
-                tracing::info!("Received message: '{text}'");
-                text
-            }
-            Err(error) => {
-                tracing::error!(?error, payload = ?payload, "Invalid UTF8 received");
-                continue;
-            }
-        };
-
-        let message_text = config
-            .mappings
-            .iter()
-            .filter(|mapping| mapping.topic == topic)
-            .find(|mapping| mapping.action.is_applicable(&message_text))
-            .map(|mapping| mapping.action.say().to_string())
-            .unwrap_or_else(|| format!("Received message: {message_text}"));
-
-        tokio::task::spawn_blocking(move || {
-            if let Err(error) = notify_rust::Notification::new()
-                .summary("MQTT Notification")
-                .body(&message_text)
-                .timeout(notify_rust::Timeout::Milliseconds(
-                    config.message_timeout_millis.into(),
-                ))
-                .show()
-                .into_diagnostic()
-            {
-                tracing::error!(?error, "Failed to show notification");
-            }
-        });
-    }
+    run(&config, mqttoptions, 0).await
 }
