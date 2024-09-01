@@ -74,7 +74,7 @@ async fn run(
         };
 
         if retain && config.ignore_retained {
-            continue
+            continue;
         }
 
         let message_text = match String::from_utf8(payload.to_vec()) {
