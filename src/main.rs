@@ -66,11 +66,16 @@ async fn run(
         let rumqttc::Event::Incoming(rumqttc::Incoming::Publish(rumqttc::mqttbytes::v4::Publish {
             payload,
             topic,
+            retain,
             ..
         })) = notification
         else {
             continue;
         };
+
+        if retain && config.ignore_retained {
+            continue
+        }
 
         let message_text = match String::from_utf8(payload.to_vec()) {
             Ok(text) => {

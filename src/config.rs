@@ -9,6 +9,8 @@ pub struct Config {
 
     pub notify_on_startup: Option<String>,
 
+    pub ignore_retained: bool,
+
     pub message_timeout_millis: u16,
 
     pub mappings: Vec<Mapping>,
