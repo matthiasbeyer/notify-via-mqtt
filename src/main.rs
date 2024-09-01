@@ -87,8 +87,14 @@ async fn run(
             .mappings
             .iter()
             .filter(|mapping| mapping.topic == topic)
-            .find(|mapping| mapping.action.is_applicable(&message_text))
-            .map(|mapping| mapping.action.say().to_string())
+            .filter_map(|mapping| {
+                mapping
+                    .actions
+                    .iter()
+                    .find(|action| action.is_applicable(&message_text))
+            })
+            .next()
+            .map(|action| action.say().to_string())
             .unwrap_or_else(|| format!("Received message: {message_text}"));
 
         let message_timeout = config.message_timeout_millis.into();

@@ -18,7 +18,7 @@ pub struct Config {
 pub struct Mapping {
     pub topic: String,
 
-    pub action: Action,
+    pub actions: Vec<Action>,
 }
 
 #[derive(Debug, serde::Deserialize)]
