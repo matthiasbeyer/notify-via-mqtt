@@ -145,6 +145,10 @@ async fn main() -> miette::Result<()> {
         })
         .into_diagnostic()?;
 
+    if crate::cli::Command::VerifyConfig == cli.command {
+        return Ok(());
+    }
+
     let mut mqttoptions = MqttOptions::new(
         "notify-via-mqtt",
         config.mqtt_broker_uri.clone(),
